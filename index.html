@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sinestesia Live</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        #ui-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 10; border: 2px solid rgba(255,255,255,0.3); box-sizing: border-box;
+        }
+
+        .reticolo {
+            width: 80px; height: 80px; border: 2px solid white;
+            border-radius: 50%; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            transition: transform 0.1s;
+        }
+
+        #start-btn {
+            position: fixed; z-index: 100; padding: 20px 40px;
+            background: white; border: none; border-radius: 50px;
+            font-weight: bold; cursor: pointer; font-size: 1.2rem;
+        }
+    </style>
+</head>
+<body>
+
+    <button id="start-btn">ATTIVA LENTE SONORA</button>
+    
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+    
+    <div id="ui-overlay">
+        <div class="reticolo" id="reticolo"></div>
+        <p style="color: white; margin-top: 20px; text-shadow: 0 2px 4px #000;">Inquadra un colore</p>
+    </div>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const reticolo = document.getElementById('reticolo');
+    const startBtn = document.getElementById('start-btn');
+
+    let synth, filter, lfo;
+    let isActive = false;
+
+    // Configurazione Audio
+    function setupAudio() {
+        filter = new Tone.Filter(1000, "lowpass").toDestination();
+        lfo = new Tone.LFO("4n", 400, 1600).connect(filter.frequency).start();
+        
+        synth = new Tone.OmniSynth({
+            oscillator: { type: "fmsine" },
+            envelope: { attack: 0.2, release: 1 }
+        }).connect(filter);
+        
+        synth.volume.value = -10;
+    }
+
+    // Accesso alla Fotocamera
+    async function initCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment" }, // Usa la camera posteriore
+                audio: false
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            alert("Errore nell'accesso alla fotocamera. Assicurati di usare HTTPS.");
+        }
+    }
+
+    startBtn.addEventListener('click', async () => {
+        await Tone.start();
+        setupAudio();
+        await initCamera();
+        startBtn.style.display = 'none';
+        isActive = true;
+        loop();
+    });
+
+    function loop() {
+        if (!isActive) return;
+
+        // Disegna il frame video sul canvas interno per analizzare i pixel
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Prendi il colore al centro dello schermo
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const pixel = ctx.getImageData(centerX, centerY, 1, 1).data;
+        
+        updateSound(pixel[0], pixel[1], pixel[2]);
+
+        requestAnimationFrame(loop);
+    }
+
+    function updateSound(r, g, b) {
+        const hsl = rgbToHsl(r, g, b);
+        
+        // Mappatura Tonalità -> Nota
+        // Usiamo una scala di Do Maggiore per un suono armonioso
+        const notes = ["C3", "D3", "E3", "F3", "G3", "A3", "B3", "C4"];
+        const index = Math.floor((hsl.h / 360) * notes.length);
+        const targetNote = notes[index];
+
+        // Cambia nota solo se la variazione è significativa
+        if (synth.frequency.value !== targetNote) {
+            synth.triggerAttack(targetNote, "+0.1");
+        }
+
+        // Saturazione -> Velocità della pulsazione (LFO)
+        lfo.frequency.rampTo(hsl.s / 10, 0.1);
+
+        // Luminosità -> Apertura del filtro (suono più chiaro/scuro)
+        filter.frequency.rampTo(hsl.l * 20 + 200, 0.1);
+
+        // Feedback Visivo: cambia il colore del reticolo
+        reticolo.style.borderColor = `rgb(${r},${g},${b})`;
+        reticolo.style.transform = `scale(${1 + hsl.s / 200})`;
+    }
+
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+        if (max === min) h = s = 0;
+        else {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+        return { h: h * 360, s: s * 100, l: l * 100 };
+    }
+</script>
+</body>
+</html>
