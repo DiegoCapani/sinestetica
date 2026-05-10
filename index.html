@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia Ambient - Pro Edition</title>
+    <title>Sinestesia Ambient - Flusso Continuo</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
@@ -56,36 +56,35 @@
     let lastHue = 0;
     let lastNote = "";
     let lastUpdate = 0;
-    const updateInterval = 200; // Analisi più calma per evitare micro-oscillazioni
+    const updateInterval = 250; 
 
     function setupAudio() {
-        // 1. Limiter STRETTO: impedisce fisicamente il clipping
-        limiter = new Tone.Limiter(-1).toDestination();
+        // Limiter per sicurezza
+        limiter = new Tone.Limiter(0).toDestination();
+        const finalGain = new Tone.Gain(2).connect(limiter);
 
-        // 2. Gain bilanciato
-        const finalGain = new Tone.Gain(2.5).connect(limiter);
+        // Riverbero molto lungo per fondere le note
+        reverb = new Tone.Reverb({ decay: 12, wet: 0.6 }).connect(finalGain);
 
-        // 3. Riverbero profondo
-        reverb = new Tone.Reverb({ decay: 10, wet: 0.5 }).connect(finalGain);
+        // Effetto Chorus per rendere il suono "liquido"
+        const chorus = new Tone.Chorus(1.5, 4, 0.5).connect(reverb).start();
 
-        // 4. Chorus per ammorbidire le transizioni
-        const chorus = new Tone.Chorus(2, 4, 0.5).connect(reverb).start();
-
-        filter = new Tone.Filter(1000, "lowpass").connect(chorus);
+        filter = new Tone.Filter(1200, "lowpass").connect(chorus);
         
-        // 5. Monosynth invece di Polysynth: 
-        // Questo garantisce che non si sommino mai più note contemporaneamente!
-        synth = new Tone.MonoSynth({
+        // PolySynth con inviluppo ultra-morbido
+        synth = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: "sine" }, 
             envelope: { 
-                attack: 1.5, 
+                attack: 2.5, // Entrata lentissima (fade-in)
                 decay: 2,
-                sustain: 0.6,
-                release: 4 
+                sustain: 0.7,
+                release: 6   // Uscita lunghissima (fade-out)
             }
         }).connect(filter);
         
-        synth.volume.value = -10; 
+        // Massimo 3 note contemporanee per evitare caos e scoppiettii
+        synth.maxPolyphony = 3;
+        synth.volume.value = -12; 
     }
 
     async function initCamera() {
@@ -125,25 +124,28 @@
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
         
-        // --- LOGICA DI TOLLERANZA ---
-        // Se la tonalità (Hue) è cambiata meno del 15% (30 gradi), ignora il cambiamento.
-        // Questo evita gli scoppiettii su colori simili.
+        // Soglia di tolleranza per evitare cambi nervosi
         const hueDiff = Math.abs(hsl.h - lastHue);
-        if (hueDiff < 30 && lastNote !== "") return; 
+        if (hueDiff < 25 && lastNote !== "") return; 
 
         const scale = ["C4", "D4", "E4", "G4", "A4", "C5"];
         const index = Math.floor((hsl.h / 360) * scale.length);
         const note = scale[index];
 
         if (note !== lastNote) {
-            // Suono monofonico: triggerAttackRelease gestisce la transizione senza sovrapposizioni brusche
-            synth.triggerAttackRelease(note, "1n");
+            // Rilasciamo la nota precedente (inizia il fade-out di 6 secondi)
+            if(lastNote !== "") synth.triggerRelease(lastNote);
+            
+            // Attacchiamo la nuova nota (inizia il fade-in di 2.5 secondi)
+            synth.triggerAttack(note);
+            
             lastNote = note;
             lastHue = hsl.h;
         }
 
-        const freq = (hsl.l * 10) + 400;
-        filter.frequency.rampTo(freq, 0.5);
+        // Filtro molto lento per seguire la luminosità senza scatti
+        const freq = (hsl.l * 12) + 350;
+        filter.frequency.rampTo(freq, 1.5);
         reticolo.style.borderColor = `rgb(${r},${g},${b})`;
     }
 
