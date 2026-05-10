@@ -3,20 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia Live - Museo</title>
+    <title>Sinestesia Live Pro - Museo</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+        canvas { display: none; } /* Canvas di servizio per l'analisi pixel */
         
-        /* Video di sfondo */
-        video { 
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; z-index: 1;
-        }
-
-        canvas { display: none; }
-
-        /* UI Overlay */
         #ui-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
@@ -24,38 +17,29 @@
         }
 
         .reticolo {
-            width: 70px; height: 70px; border: 3px solid white;
-            border-radius: 50%; box-shadow: 0 0 20px rgba(0,0,0,0.6);
-            transition: transform 0.1s, border-color 0.2s;
+            width: 65px; height: 65px; border: 3px solid white;
+            border-radius: 50%; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            transition: border-color 0.3s ease;
         }
 
-        #info {
-            color: white; margin-top: 25px; letter-spacing: 1.5px;
-            font-size: 0.9rem; text-shadow: 0 2px 5px #000;
-        }
-
-        /* Schermata iniziale per sbloccare Audio e Camera */
         #start-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #111; display: flex; flex-direction: column;
+            background: #000; display: flex; flex-direction: column;
             justify-content: center; align-items: center; z-index: 100;
         }
 
         #start-btn {
-            padding: 22px 45px; font-size: 1.2rem; font-weight: bold;
-            background: #fff; border: none; border-radius: 60px;
-            cursor: pointer; box-shadow: 0 10px 30px rgba(255,255,255,0.2);
-            transition: transform 0.2s;
+            padding: 20px 50px; font-size: 1.2rem; font-weight: bold;
+            background: #fff; border: none; border-radius: 50px;
+            cursor: pointer; letter-spacing: 1px;
         }
-
-        #start-btn:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
-        <button id="start-btn">ATTIVA LENTE SONORA</button>
-        <p style="color: #666; margin-top: 15px;">Assicurati che il volume sia attivo</p>
+        <button id="start-btn">AVVIA ESPERIENZA</button>
+        <p style="color: #888; margin-top: 20px; font-size: 0.9rem;">Usa le cuffie per un effetto migliore</p>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
@@ -63,7 +47,6 @@
     
     <div id="ui-overlay">
         <div class="reticolo" id="reticolo"></div>
-        <p id="info">ANALISI COLORE IN CORSO</p>
     </div>
 
 <script>
@@ -74,78 +57,71 @@
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter;
+    let synth, filter, reverb, limiter;
     let isActive = false;
     let lastNote = "";
+    let lastUpdate = 0;
+    const updateInterval = 100; // Analisi ogni 100ms (10 volte al secondo) per stabilità totale
 
-    // Inizializzazione Audio
     function setupAudio() {
-        // Riverbero per rendere il suono "artistico" e spaziale
-        const reverb = new Tone.Reverb({ decay: 4, wet: 0.5 }).toDestination();
-        filter = new Tone.Filter(800, "lowpass").connect(reverb);
+        // 1. Limitatore: Impedisce scoppiettii dovuti al volume troppo alto
+        limiter = new Tone.Limiter(-2).toDestination();
         
+        // 2. Riverbero: Crea spazialità
+        reverb = new Tone.Reverb({ decay: 5, wet: 0.4 }).connect(limiter);
+        
+        // 3. Filtro: Rende il suono morbido
+        filter = new Tone.Filter(1000, "lowpass").connect(reverb);
+        
+        // 4. Sintetizzatore: PolySynth gestisce meglio le transizioni
         synth = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: "sine" },
-            envelope: { attack: 0.5, release: 2 }
+            envelope: { attack: 0.6, release: 2 } // Attacco lungo = nessun "clic"
         }).connect(filter);
         
-        synth.volume.value = -10;
+        synth.volume.value = -15; // Volume di sicurezza
     }
 
-    // Inizializzazione Camera
     async function initCamera() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" },
+                video: { facingMode: "environment", width: { ideal: 640 } }, 
                 audio: false
             });
             video.srcObject = stream;
-            // Attendiamo che il video sia effettivamente pronto per il play
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    video.play();
-                    resolve();
-                };
-            });
+            return new Promise(resolve => video.onloadedmetadata = () => { video.play(); resolve(); });
         } catch (err) {
-            alert("Errore fotocamera: Usa HTTPS e accetta i permessi.");
-            throw err;
+            alert("Errore fotocamera. Assicurati di essere su HTTPS.");
         }
     }
 
-    // Click per avviare tutto
     startBtn.addEventListener('click', async () => {
-        // IMPORTANTE: Sblocco Audio su Mobile
         await Tone.start();
-        if (Tone.context.state !== 'running') {
-            await Tone.context.resume();
-        }
+        if (Tone.context.state !== 'running') await Tone.context.resume();
         
         setupAudio();
+        await initCamera();
         
-        try {
-            await initCamera();
-            startScreen.style.display = 'none';
-            isActive = true;
-            loop();
-        } catch(e) { console.error(e); }
+        startScreen.style.display = 'none';
+        isActive = true;
+        requestAnimationFrame(loop);
     });
 
-    function loop() {
+    function loop(time) {
         if (!isActive) return;
 
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            // Sincronizza dimensioni canvas
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Analisi temporizzata per non sovraccaricare il processore (e il buffer audio)
+        if (time - lastUpdate > updateInterval) {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                // Usiamo un canvas minuscolo (100px) per l'analisi: molto più veloce!
+                canvas.width = 100;
+                canvas.height = 100;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // Estrazione colore centrale
-            const x = canvas.width / 2;
-            const y = canvas.height / 2;
-            const p = ctx.getImageData(x, y, 1, 1).data;
-            
-            processColor(p[0], p[1], p[2]);
+                const p = ctx.getImageData(50, 50, 1, 1).data; // Punto centrale
+                processColor(p[0], p[1], p[2]);
+                lastUpdate = time;
+            }
         }
         requestAnimationFrame(loop);
     }
@@ -153,24 +129,24 @@
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
         
-        // Scala pentatonica per evitare dissonanze
+        // Scala pentatonica (Do Maggiore)
         const scale = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4"];
-        const noteIndex = Math.floor((hsl.h / 360) * scale.length);
-        const currentNote = scale[noteIndex];
+        const index = Math.floor((hsl.h / 360) * scale.length);
+        const note = scale[index];
 
-        // Suona solo se la nota è cambiata (per evitare rumore continuo)
-        if (currentNote !== lastNote) {
-            synth.triggerAttackRelease(currentNote, "2n");
-            lastNote = currentNote;
+        if (note !== lastNote) {
+            // Rilascia le note precedenti con una coda dolce e suona la nuova
+            synth.releaseAll();
+            synth.triggerAttackRelease(note, "2n", undefined, 0.2);
+            lastNote = note;
         }
 
-        // Adatta il filtro alla luminosità
-        const cutoff = (hsl.l * 20) + 300;
-        filter.frequency.rampTo(cutoff, 0.2);
+        // Transizione del filtro fluida (esponenziale)
+        const freq = (hsl.l * 15) + 200;
+        filter.frequency.exponentialRampTo(freq, 0.1);
 
-        // Aggiorna interfaccia
+        // Feedback visivo
         reticolo.style.borderColor = `rgb(${r},${g},${b})`;
-        reticolo.style.transform = `scale(${1 + (hsl.s / 150)})`;
     }
 
     function rgbToHsl(r, g, b) {
