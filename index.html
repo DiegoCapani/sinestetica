@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia Ambient - Museo</title>
+    <title>Sinestesia Ambient Museale</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
+        /* INTERFACCIA MANTENUTA */
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
         canvas { display: none; }
@@ -53,41 +54,42 @@
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter, reverb, phaser, chorus;
+    let synth, filter, reverb, phaser, chorus, limiter;
     let isActive = false;
     let lastNote = "";
     let lastUpdate = 0;
-    const updateInterval = 120; 
+    const updateInterval = 150; // Leggermente più lento per massima stabilità CPU
 
     function setupAudio() {
-        // 1. Limiter per la massima pulizia
-        const limiter = new Tone.Limiter(0).toDestination();
+        // SOLUZIONE SCOPPIETTII: Limiter ferreo a 0dB per evitare clipping
+        limiter = new Tone.Limiter(0).toDestination();
 
-        // 2. Volume Boost Finale (Gain)
-        const outputGain = new Tone.Gain(3).connect(limiter);
+        // Gain di compensazione per alzare il volume senza "rompere" l'onda
+        const finalGain = new Tone.Gain(3.5).connect(limiter);
 
-        // 3. Riverbero Profondo (Cattedrale)
-        reverb = new Tone.Reverb({ decay: 7, wet: 0.5 }).connect(outputGain);
+        // SUONO NEW AGE: Riverbero lunghissimo
+        reverb = new Tone.Reverb({ decay: 8, wet: 0.5 }).connect(finalGain);
 
-        // 4. Chorus e Phaser (Danno quel suono "fluttuante" e New Age)
+        // Effetti di spazialità
         chorus = new Tone.Chorus(1.5, 3.5, 0.7).connect(reverb).start();
-        phaser = new Tone.Phaser({ frequency: 0.2, octaves: 3, baseFrequency: 500 }).connect(chorus);
+        phaser = new Tone.Phaser({ frequency: 0.1, octaves: 2, baseFrequency: 400 }).connect(chorus);
 
-        // 5. Filtro morbido
-        filter = new Tone.Filter(1500, "lowpass").connect(phaser);
+        // Filtro morbido per togliere asprezze
+        filter = new Tone.Filter(1200, "lowpass").connect(phaser);
         
-        // 6. Ritorno alla Sine Wave (Pura) con Inviluppo dolcissimo
+        // SINTETIZZATORE PURO
         synth = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: "sine" }, 
             envelope: { 
-                attack: 0.8, // Attacco molto lento per l'effetto sognante
+                attack: 1.2, // Attacco ancora più dolce per eliminare i "clic" iniziali
                 decay: 1,
-                sustain: 0.6,
-                release: 4 // Coda lunghissima
+                sustain: 0.8,
+                release: 5 // Coda lunghissima per dissolvenze perfette
             }
         }).connect(filter);
         
-        synth.volume.value = -4; 
+        // Volume interno basso (per non distorcere prima degli effetti)
+        synth.volume.value = -6; 
     }
 
     async function initCamera() {
@@ -115,9 +117,10 @@
         if (!isActive) return;
         if (time - lastUpdate > updateInterval) {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.width = 80; canvas.height = 80;
+                // Analisi su area piccola per non rubare CPU all'audio
+                canvas.width = 64; canvas.height = 64;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const p = ctx.getImageData(40, 40, 1, 1).data;
+                const p = ctx.getImageData(32, 32, 1, 1).data;
                 processColor(p[0], p[1], p[2]);
                 lastUpdate = time;
             }
@@ -127,21 +130,21 @@
 
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
-        
-        // Scala Pentatonica (Suono "celestiale")
         const scale = ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5"];
         const index = Math.floor((hsl.h / 360) * scale.length);
         const note = scale[index];
 
         if (note !== lastNote) {
-            // Note lunghe che si sovrappongono (effetti ambient)
-            synth.triggerAttackRelease(note, "1n", undefined, 0.4);
+            // SOLUZIONE DISTURBI: Dissolvenza incrociata tra note
+            synth.releaseAll(); 
+            // triggerAttack con un leggero ritardo temporale (+0.1) per evitare sovrapposizioni elettriche brusche
+            synth.triggerAttackRelease(note, "1n", "+0.1", 0.5);
             lastNote = note;
         }
 
-        // Il filtro segue dolcemente la luminosità
-        const freq = (hsl.l * 20) + 400;
-        filter.frequency.exponentialRampTo(freq, 0.5);
+        // Transizione del filtro molto lenta (0.8s) per evitare "bump" audio
+        const freq = (hsl.l * 15) + 350;
+        filter.frequency.exponentialRampTo(freq, 0.8);
 
         reticolo.style.borderColor = `rgba(${r},${g},${b}, 0.8)`;
     }
