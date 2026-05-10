@@ -3,42 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia Live Pro - Volume Fix</title>
+    <title>Sinestesia Ambient - Museo</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
         canvas { display: none; }
-        
         #ui-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
             z-index: 10; pointer-events: none;
         }
-
         .reticolo {
-            width: 65px; height: 65px; border: 4px solid white;
-            border-radius: 50%; box-shadow: 0 0 25px rgba(0,0,0,0.7);
+            width: 60px; height: 60px; border: 2px solid rgba(255,255,255,0.8);
+            border-radius: 50%; box-shadow: 0 0 30px rgba(255,255,255,0.2);
         }
-
         #start-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; display: flex; flex-direction: column;
-            justify-content: center; align-items: center; z-index: 100;
+            background: radial-gradient(circle, #222 0%, #000 100%);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100;
         }
-
         #start-btn {
-            padding: 22px 55px; font-size: 1.3rem; font-weight: bold;
-            background: #fff; border: none; border-radius: 60px;
-            cursor: pointer; box-shadow: 0 0 20px rgba(255,255,255,0.4);
+            padding: 20px 60px; font-size: 1.1rem; font-weight: 300; letter-spacing: 3px;
+            background: none; color: white; border: 1px solid white; border-radius: 2px;
+            cursor: pointer; transition: all 0.5s;
         }
+        #start-btn:hover { background: white; color: black; }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
-        <button id="start-btn">AVVIA ESPERIENZA</button>
-        <p style="color: #aaa; margin-top: 20px;">Alza il volume del dispositivo</p>
+        <button id="start-btn">ENTRA NELL'OPERA</button>
+        <p style="color: #666; margin-top: 30px; font-size: 0.8rem; letter-spacing: 1px;">SINESTESIA AMBIENT EXPERIENCE</p>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
@@ -56,44 +53,41 @@
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter, reverb, limiter, compressor;
+    let synth, filter, reverb, phaser, chorus;
     let isActive = false;
     let lastNote = "";
     let lastUpdate = 0;
-    const updateInterval = 100; 
+    const updateInterval = 120; 
 
     function setupAudio() {
-        // 1. Limitatore finale per evitare distorsioni
-        limiter = new Tone.Limiter(0).toDestination();
-        
-        // 2. Guadagno finale per pompare il volume
-        const mainGain = new Tone.Gain(2.5).connect(limiter); 
+        // 1. Limiter per la massima pulizia
+        const limiter = new Tone.Limiter(0).toDestination();
 
-        // 3. Compressore: rende il suono più "denso" e udibile
-        compressor = new Tone.Compressor(-24, 4).connect(mainGain);
+        // 2. Volume Boost Finale (Gain)
+        const outputGain = new Tone.Gain(3).connect(limiter);
 
-        // 4. Riverbero per l'atmosfera
-        reverb = new Tone.Reverb({ decay: 3.5, wet: 0.35 }).connect(compressor);
+        // 3. Riverbero Profondo (Cattedrale)
+        reverb = new Tone.Reverb({ decay: 7, wet: 0.5 }).connect(outputGain);
+
+        // 4. Chorus e Phaser (Danno quel suono "fluttuante" e New Age)
+        chorus = new Tone.Chorus(1.5, 3.5, 0.7).connect(reverb).start();
+        phaser = new Tone.Phaser({ frequency: 0.2, octaves: 3, baseFrequency: 500 }).connect(chorus);
+
+        // 5. Filtro morbido
+        filter = new Tone.Filter(1500, "lowpass").connect(phaser);
         
-        // 5. Filtro con risonanza per dare corpo
-        filter = new Tone.Filter({
-            frequency: 1200,
-            type: "lowpass",
-            Q: 2
-        }).connect(reverb);
-        
-        // 6. Sintetizzatore: Triangle wave ha più volume armonico della Sine
+        // 6. Ritorno alla Sine Wave (Pura) con Inviluppo dolcissimo
         synth = new Tone.PolySynth(Tone.Synth, {
-            oscillator: { type: "triangle" }, 
+            oscillator: { type: "sine" }, 
             envelope: { 
-                attack: 0.2, 
-                decay: 0.3,
-                sustain: 0.9,
-                release: 1.5 
+                attack: 0.8, // Attacco molto lento per l'effetto sognante
+                decay: 1,
+                sustain: 0.6,
+                release: 4 // Coda lunghissima
             }
         }).connect(filter);
         
-        synth.volume.value = -3; // Quasi al massimo
+        synth.volume.value = -4; 
     }
 
     async function initCamera() {
@@ -104,18 +98,14 @@
             });
             video.srcObject = stream;
             return new Promise(resolve => video.onloadedmetadata = () => { video.play(); resolve(); });
-        } catch (err) {
-            alert("Errore camera: Assicurati di usare HTTPS.");
-        }
+        } catch (err) { alert("Attenzione: serve HTTPS per la camera."); }
     }
 
     startBtn.addEventListener('click', async () => {
         await Tone.start();
         if (Tone.context.state !== 'running') await Tone.context.resume();
-        
         setupAudio();
         await initCamera();
-        
         startScreen.style.display = 'none';
         isActive = true;
         requestAnimationFrame(loop);
@@ -123,14 +113,11 @@
 
     function loop(time) {
         if (!isActive) return;
-
         if (time - lastUpdate > updateInterval) {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.width = 100;
-                canvas.height = 100;
+                canvas.width = 80; canvas.height = 80;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                const p = ctx.getImageData(50, 50, 1, 1).data;
+                const p = ctx.getImageData(40, 40, 1, 1).data;
                 processColor(p[0], p[1], p[2]);
                 lastUpdate = time;
             }
@@ -141,24 +128,22 @@
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
         
-        // Scala Pentatonica Maggiore per un suono cristallino
-        const scale = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4"];
+        // Scala Pentatonica (Suono "celestiale")
+        const scale = ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5"];
         const index = Math.floor((hsl.h / 360) * scale.length);
         const note = scale[index];
 
         if (note !== lastNote) {
-            synth.releaseAll();
-            // Aumentiamo leggermente il velocity (0.9) per più impatto
-            synth.triggerAttackRelease(note, "2n", undefined, 0.9);
+            // Note lunghe che si sovrappongono (effetti ambient)
+            synth.triggerAttackRelease(note, "1n", undefined, 0.4);
             lastNote = note;
         }
 
-        // Filtro dinamico basato sulla luminosità (L)
-        const freq = (hsl.l * 35) + 300;
-        filter.frequency.exponentialRampTo(freq, 0.15);
+        // Il filtro segue dolcemente la luminosità
+        const freq = (hsl.l * 20) + 400;
+        filter.frequency.exponentialRampTo(freq, 0.5);
 
-        // Feedback visivo
-        reticolo.style.borderColor = `rgb(${r},${g},${b})`;
+        reticolo.style.borderColor = `rgba(${r},${g},${b}, 0.8)`;
     }
 
     function rgbToHsl(r, g, b) {
