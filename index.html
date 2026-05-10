@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia - Flusso Infinito</title>
+    <title>Sinestesia - Harmonia Mundi</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
@@ -15,7 +15,7 @@
             z-index: 10; pointer-events: none;
         }
         .reticolo {
-            width: 60px; height: 60px; border: 2px solid rgba(255,255,255,0.5);
+            width: 60px; height: 60px; border: 2px solid rgba(255,255,255,0.4);
             border-radius: 50%; box-shadow: 0 0 30px rgba(255,255,255,0.2);
         }
         #start-screen {
@@ -33,7 +33,7 @@
 <body>
 
     <div id="start-screen">
-        <button id="start-btn">ASCOLTA I COLORI</button>
+        <button id="start-btn">ENTRA NELL'ARMONIA</button>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
@@ -47,31 +47,39 @@
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d', { alpha: false });
-    const reticolo = document.getElementById('reticolo');
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter, reverb;
+    let synth, filter, reverb, chorus;
     let isActive = false;
-    let lastFrequency = 0;
+    let lastNote = "";
     let lastUpdate = 0;
 
     function setupAudio() {
         const limiter = new Tone.Limiter(0).toDestination();
-        const finalGain = new Tone.Gain(2.5).connect(limiter);
-        reverb = new Tone.Reverb({ decay: 10, wet: 0.6 }).connect(finalGain);
+        const finalGain = new Tone.Gain(2).connect(limiter);
         
-        // Filtro molto caldo
-        filter = new Tone.Filter(800, "lowpass").connect(reverb);
+        // Riverbero celestiale
+        reverb = new Tone.Reverb({ decay: 10, wet: 0.5 }).connect(finalGain);
         
-        // Usiamo un MonoSynth per un legato perfetto (passaggio tra note senza stacchi)
+        // Chorus per sdoppiare il suono e renderlo magico
+        chorus = new Tone.Chorus(1.5, 3.5, 0.5).connect(reverb).start();
+        
+        // Filtro passa-basso molto dolce
+        filter = new Tone.Filter(1000, "lowpass").connect(chorus);
+        
+        // MonoSynth con "portamento": la chiave per la musica continua
+        // Il portamento scivola tra le note musicali in modo automatico
         synth = new Tone.MonoSynth({
             oscillator: { type: "sine" },
-            envelope: { attack: 2, release: 4 },
-            filterEnvelope: { attack: 1, baseFrequency: 200, octaves: 4 }
+            portamento: 0.8, // Tempo di scivolamento tra le note (New Age feel)
+            envelope: {
+                attack: 1.5,
+                release: 4
+            }
         }).connect(filter);
 
-        synth.volume.value = -10;
+        synth.volume.value = -8;
     }
 
     async function initCamera() {
@@ -82,7 +90,7 @@
             });
             video.srcObject = stream;
             video.play();
-        } catch (err) { alert("Necessario HTTPS"); }
+        } catch (err) { alert("HTTPS richiesto"); }
     }
 
     startBtn.addEventListener('click', async () => {
@@ -92,15 +100,13 @@
         startScreen.style.display = 'none';
         isActive = true;
         
-        // Inizia a suonare una nota base subito
+        // Inizia con una nota fondamentale
         synth.triggerAttack("C4");
         requestAnimationFrame(loop);
     });
 
     function loop(time) {
         if (!isActive) return;
-
-        // Analisi costante ogni 150ms per fluidità
         if (time - lastUpdate > 150) {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 canvas.width = 64; canvas.height = 64;
@@ -116,26 +122,23 @@
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
         
-        // Mappatura HUE -> FREQUENZA CONTINUA (non più solo note fisse)
-        // Questo garantisce che non ci siano mai pause perché non "cerchiamo" una nota specifica
-        // ma scivoliamo (portamento) tra le frequenze.
-        const minFreq = 130; // Do2
-        const maxFreq = 523; // Do5
-        const targetFreq = minFreq + (hsl.h / 360) * (maxFreq - minFreq);
+        // SCALA PENTATONICA MAGGIORE: Impossibile fare note brutte
+        const scale = ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5"];
+        const index = Math.floor((hsl.h / 360) * scale.length);
+        const note = scale[index];
 
-        // Se la frequenza è cambiata, scivola verso la nuova in 0.5 secondi
-        if (targetFreq !== lastFrequency) {
-            synth.frequency.rampTo(targetFreq, 0.6);
-            lastFrequency = targetFreq;
+        if (note !== lastNote) {
+            // Non usiamo triggerRelease! Cambiamo solo la frequenza.
+            // Il 'portamento' farà il resto, scivolando verso la nota musicale.
+            synth.setNote(note);
+            lastNote = note;
         }
 
-        // Il filtro segue la luminosità in modo fluido
-        const fCutoff = (hsl.l * 15) + 300;
-        filter.frequency.rampTo(fCutoff, 0.8);
+        // Il filtro ammorbidisce il suono in base alla luce
+        const fCutoff = (hsl.l * 12) + 300;
+        filter.frequency.rampTo(fCutoff, 1);
 
-        // Feedback visivo
-        reticolo.style.borderColor = `rgb(${r},${g},${b})`;
-        reticolo.style.boxShadow = `0 0 40px rgba(${r},${g},${b}, 0.5)`;
+        document.getElementById('reticolo').style.borderColor = `rgb(${r},${g},${b})`;
     }
 
     function rgbToHsl(r, g, b) {
