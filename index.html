@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia - Spettro Cromatico Totale</title>
+    <title>Sinestesia - Museale Pro</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
@@ -11,12 +11,12 @@
         canvas { display: none; }
         #ui-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            display: flex; justify-content: center; align-items: center;
             z-index: 10; pointer-events: none;
         }
         .reticolo {
-            width: 65px; height: 65px; border: 2px solid rgba(255,255,255,0.6);
-            border-radius: 50%; box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            width: 70px; height: 70px; border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 50%; box-shadow: 0 0 40px rgba(0,0,0,0.9);
         }
         #start-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -24,8 +24,8 @@
             justify-content: center; align-items: center; z-index: 100;
         }
         #start-btn {
-            padding: 18px 50px; font-size: 1rem; font-weight: 300; letter-spacing: 4px;
-            background: none; color: white; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px;
+            padding: 20px 60px; font-size: 1.1rem; font-weight: 300; letter-spacing: 3px;
+            background: none; color: white; border: 1px solid white; border-radius: 4px;
             cursor: pointer;
         }
     </style>
@@ -33,7 +33,7 @@
 <body>
 
     <div id="start-screen">
-        <button id="start-btn">INIZIA IL VIAGGIO</button>
+        <button id="start-btn">AVVIA ESPERIENZA</button>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
@@ -50,22 +50,37 @@
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter, reverb, chorus;
+    let synth, filter, reverb, limiter;
     let isActive = false;
     let lastNote = "";
     let lastUpdate = 0;
+    
+    // Filtro di stabilità per i colori (media mobile)
+    let smoothedR = 0, smoothedG = 0, smoothedB = 0;
 
     function setupAudio() {
-        const limiter = new Tone.Limiter(-1).toDestination();
-        reverb = new Tone.Reverb({ decay: 12, wet: 0.45 }).connect(limiter);
-        chorus = new Tone.Chorus(1.2, 4, 0.5).connect(reverb).start();
-        filter = new Tone.Filter(900, "lowpass").connect(chorus);
+        // 1. Limiter rigidissimo per eliminare scoppiettii (clipping)
+        limiter = new Tone.Limiter(-3).toDestination();
         
+        // 2. Gain controllato
+        const finalGain = new Tone.Gain(1.5).connect(limiter);
+
+        // 3. Riverbero ultra-lungo (New Age)
+        reverb = new Tone.Reverb({ decay: 15, wet: 0.5 }).connect(finalGain);
+        
+        // 4. Chorus per ammorbidire le armoniche
+        const chorus = new Tone.Chorus(2, 3.5, 0.5).connect(reverb).start();
+        
+        filter = new Tone.Filter(800, "lowpass").connect(chorus);
+        
+        // 5. Synth polifonico limitato (massimo 2 note per evitare accumulo di volume)
         synth = new Tone.PolySynth(Tone.Synth, {
+            maxPolyphony: 2,
             oscillator: { type: "sine" },
-            envelope: { attack: 0.8, decay: 3, sustain: 0.2, release: 6 }
+            envelope: { attack: 1.2, decay: 2, sustain: 0.1, release: 8 }
         }).connect(filter);
-        synth.volume.value = -6;
+        
+        synth.volume.value = -12;
     }
 
     async function initCamera() {
@@ -76,7 +91,7 @@
             });
             video.srcObject = stream;
             video.play();
-        } catch (err) { alert("Attiva la fotocamera via HTTPS"); }
+        } catch (err) { alert("Accesso camera negato."); }
     }
 
     startBtn.addEventListener('click', async () => {
@@ -90,21 +105,25 @@
 
     function loop(time) {
         if (!isActive) return;
-        if (time - lastUpdate > 150) {
+        if (time - lastUpdate > 200) { // Analisi ogni 200ms per stabilità
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                // Analizziamo una zona centrale 10x10 per una media colore più fedele
                 canvas.width = 100; canvas.height = 100;
                 ctx.drawImage(video, 0, 0, 100, 100);
                 
-                const imageData = ctx.getImageData(45, 45, 10, 10).data;
+                // Leggiamo un'area media 20x20 per ignorare la texture della tela
+                const imageData = ctx.getImageData(40, 40, 20, 20).data;
                 let r = 0, g = 0, b = 0;
-
                 for (let i = 0; i < imageData.length; i += 4) {
                     r += imageData[i]; g += imageData[i+1]; b += imageData[i+2];
                 }
                 const count = imageData.length / 4;
-                processColor(Math.floor(r/count), Math.floor(g/count), Math.floor(b/count)); 
                 
+                // Applichiamo smoothing (il colore cambia solo se il cambiamento persiste)
+                smoothedR += (r/count - smoothedR) * 0.4;
+                smoothedG += (g/count - smoothedG) * 0.4;
+                smoothedB += (b/count - smoothedB) * 0.4;
+
+                processColor(Math.floor(smoothedR), Math.floor(smoothedG), Math.floor(smoothedB)); 
                 lastUpdate = time;
             }
         }
@@ -112,34 +131,32 @@
     }
 
     function processColor(r, g, b) {
-        // Applichiamo un "auto-contrast" per migliorare i colori spenti
-        // Questo rende i colori del museo più vibranti per il sensore
+        // Normalizzazione dinamica per sculture e tele poco illuminate
         let max = Math.max(r, g, b);
         let min = Math.min(r, g, b);
-        if (max - min < 20 && max > 50 && max < 200) {
-            // Se il colore è troppo grigio, forziamo un po' di saturazione
-            r = r * 1.2; g = g * 1.2; b = b * 1.2;
-        }
+        let delta = max - min;
 
         const hsl = rgbToHsl(r, g, b);
         
-        // Scala Pentatonica (La tua sonorità New Age preferita)
+        // Scala Pentatonica Cristallina
         const scale = ["C3", "G3", "C4", "D4", "E4", "G4", "A4", "C5", "E5", "G5"];
         const index = Math.floor((hsl.h / 360) * scale.length);
         const note = scale[index];
 
-        // Sensibilità migliorata: abbassiamo la soglia di saturazione
-        // Adesso anche i colori "tenui" (s > 8) producono suono
-        const volumeFactor = hsl.s > 8 ? 1 : hsl.s / 8;
-        const velocity = (hsl.l / 100) * volumeFactor * 0.7;
+        // Se siamo su sculture (bianchi/grigi) o tele scure, usiamo la luminosità
+        // Abbassiamo la soglia di riconoscimento: suona quasi tutto ora.
+        const velocity = (hsl.l / 100) * (hsl.s > 5 ? 0.8 : 0.4);
 
-        if (note !== lastNote && velocity > 0.05) {
+        if (note !== lastNote && velocity > 0.08) {
+            // Rilasciamo con grazia per evitare accumuli di note che creano scoppiettii
+            synth.releaseAll();
             synth.triggerAttackRelease(note, "1n", undefined, velocity);
             lastNote = note;
         }
 
-        const fCutoff = (hsl.s * 20) + 250;
-        filter.frequency.rampTo(fCutoff, 1.2);
+        // Il filtro segue la luminosità (apre il suono sul marmo bianco o colori chiari)
+        const fCutoff = (hsl.l * 10) + 200;
+        filter.frequency.rampTo(fCutoff, 1.5);
 
         document.getElementById('reticolo').style.borderColor = `rgb(${r},${g},${b})`;
     }
