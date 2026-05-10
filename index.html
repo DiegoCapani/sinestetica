@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia Ambient - Flusso Continuo</title>
+    <title>Sinestesia - Flusso Infinito</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
@@ -15,7 +15,7 @@
             z-index: 10; pointer-events: none;
         }
         .reticolo {
-            width: 60px; height: 60px; border: 2px solid rgba(255,255,255,0.8);
+            width: 60px; height: 60px; border: 2px solid rgba(255,255,255,0.5);
             border-radius: 50%; box-shadow: 0 0 30px rgba(255,255,255,0.2);
         }
         #start-screen {
@@ -33,7 +33,7 @@
 <body>
 
     <div id="start-screen">
-        <button id="start-btn">ENTRA NELL'OPERA</button>
+        <button id="start-btn">ASCOLTA I COLORI</button>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
@@ -46,45 +46,32 @@
 <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+    const ctx = canvas.getContext('2d', { alpha: false });
     const reticolo = document.getElementById('reticolo');
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter, reverb, limiter;
+    let synth, filter, reverb;
     let isActive = false;
-    let lastHue = 0;
-    let lastNote = "";
+    let lastFrequency = 0;
     let lastUpdate = 0;
-    const updateInterval = 250; 
 
     function setupAudio() {
-        // Limiter per sicurezza
-        limiter = new Tone.Limiter(0).toDestination();
-        const finalGain = new Tone.Gain(2).connect(limiter);
-
-        // Riverbero molto lungo per fondere le note
-        reverb = new Tone.Reverb({ decay: 12, wet: 0.6 }).connect(finalGain);
-
-        // Effetto Chorus per rendere il suono "liquido"
-        const chorus = new Tone.Chorus(1.5, 4, 0.5).connect(reverb).start();
-
-        filter = new Tone.Filter(1200, "lowpass").connect(chorus);
+        const limiter = new Tone.Limiter(0).toDestination();
+        const finalGain = new Tone.Gain(2.5).connect(limiter);
+        reverb = new Tone.Reverb({ decay: 10, wet: 0.6 }).connect(finalGain);
         
-        // PolySynth con inviluppo ultra-morbido
-        synth = new Tone.PolySynth(Tone.Synth, {
-            oscillator: { type: "sine" }, 
-            envelope: { 
-                attack: 2.5, // Entrata lentissima (fade-in)
-                decay: 2,
-                sustain: 0.7,
-                release: 6   // Uscita lunghissima (fade-out)
-            }
+        // Filtro molto caldo
+        filter = new Tone.Filter(800, "lowpass").connect(reverb);
+        
+        // Usiamo un MonoSynth per un legato perfetto (passaggio tra note senza stacchi)
+        synth = new Tone.MonoSynth({
+            oscillator: { type: "sine" },
+            envelope: { attack: 2, release: 4 },
+            filterEnvelope: { attack: 1, baseFrequency: 200, octaves: 4 }
         }).connect(filter);
-        
-        // Massimo 3 note contemporanee per evitare caos e scoppiettii
-        synth.maxPolyphony = 3;
-        synth.volume.value = -12; 
+
+        synth.volume.value = -10;
     }
 
     async function initCamera() {
@@ -104,12 +91,17 @@
         await initCamera();
         startScreen.style.display = 'none';
         isActive = true;
+        
+        // Inizia a suonare una nota base subito
+        synth.triggerAttack("C4");
         requestAnimationFrame(loop);
     });
 
     function loop(time) {
         if (!isActive) return;
-        if (time - lastUpdate > updateInterval) {
+
+        // Analisi costante ogni 150ms per fluidità
+        if (time - lastUpdate > 150) {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 canvas.width = 64; canvas.height = 64;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -124,29 +116,26 @@
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
         
-        // Soglia di tolleranza per evitare cambi nervosi
-        const hueDiff = Math.abs(hsl.h - lastHue);
-        if (hueDiff < 25 && lastNote !== "") return; 
+        // Mappatura HUE -> FREQUENZA CONTINUA (non più solo note fisse)
+        // Questo garantisce che non ci siano mai pause perché non "cerchiamo" una nota specifica
+        // ma scivoliamo (portamento) tra le frequenze.
+        const minFreq = 130; // Do2
+        const maxFreq = 523; // Do5
+        const targetFreq = minFreq + (hsl.h / 360) * (maxFreq - minFreq);
 
-        const scale = ["C4", "D4", "E4", "G4", "A4", "C5"];
-        const index = Math.floor((hsl.h / 360) * scale.length);
-        const note = scale[index];
-
-        if (note !== lastNote) {
-            // Rilasciamo la nota precedente (inizia il fade-out di 6 secondi)
-            if(lastNote !== "") synth.triggerRelease(lastNote);
-            
-            // Attacchiamo la nuova nota (inizia il fade-in di 2.5 secondi)
-            synth.triggerAttack(note);
-            
-            lastNote = note;
-            lastHue = hsl.h;
+        // Se la frequenza è cambiata, scivola verso la nuova in 0.5 secondi
+        if (targetFreq !== lastFrequency) {
+            synth.frequency.rampTo(targetFreq, 0.6);
+            lastFrequency = targetFreq;
         }
 
-        // Filtro molto lento per seguire la luminosità senza scatti
-        const freq = (hsl.l * 12) + 350;
-        filter.frequency.rampTo(freq, 1.5);
+        // Il filtro segue la luminosità in modo fluido
+        const fCutoff = (hsl.l * 15) + 300;
+        filter.frequency.rampTo(fCutoff, 0.8);
+
+        // Feedback visivo
         reticolo.style.borderColor = `rgb(${r},${g},${b})`;
+        reticolo.style.boxShadow = `0 0 40px rgba(${r},${g},${b}, 0.5)`;
     }
 
     function rgbToHsl(r, g, b) {
