@@ -3,22 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia Live - Esperienza Museale</title>
-    <!-- Caricamento libreria Tone.js per la sintesi sonora -->
+    <title>Sinestesia Live - Museo</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         
-        /* Video a tutto schermo come sfondo */
+        /* Video di sfondo */
         video { 
             position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
             object-fit: cover; z-index: 1;
         }
 
-        /* Canvas nascosto per l'analisi dei pixel */
         canvas { display: none; }
 
-        /* Interfaccia utente */
+        /* UI Overlay */
         #ui-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
@@ -26,34 +24,38 @@
         }
 
         .reticolo {
-            width: 60px; height: 60px; border: 3px solid white;
-            border-radius: 50%; box-shadow: 0 0 15px rgba(0,0,0,0.5);
-            transition: transform 0.1s;
+            width: 70px; height: 70px; border: 3px solid white;
+            border-radius: 50%; box-shadow: 0 0 20px rgba(0,0,0,0.6);
+            transition: transform 0.1s, border-color 0.2s;
         }
 
-        #instruzioni {
-            color: white; margin-top: 20px; text-transform: uppercase;
-            letter-spacing: 2px; font-size: 0.8rem; text-shadow: 0 2px 4px #000;
+        #info {
+            color: white; margin-top: 25px; letter-spacing: 1.5px;
+            font-size: 0.9rem; text-shadow: 0 2px 5px #000;
         }
 
-        /* Pulsante di avvio obbligatorio per sbloccare l'audio nei browser */
+        /* Schermata iniziale per sbloccare Audio e Camera */
         #start-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; display: flex; justify-content: center; 
-            align-items: center; z-index: 100;
+            background: #111; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
         }
 
         #start-btn {
-            padding: 20px 40px; font-size: 1.1rem; font-weight: bold;
-            background: #fff; border: none; border-radius: 50px;
-            cursor: pointer; box-shadow: 0 4px 15px rgba(255,255,255,0.3);
+            padding: 22px 45px; font-size: 1.2rem; font-weight: bold;
+            background: #fff; border: none; border-radius: 60px;
+            cursor: pointer; box-shadow: 0 10px 30px rgba(255,255,255,0.2);
+            transition: transform 0.2s;
         }
+
+        #start-btn:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
         <button id="start-btn">ATTIVA LENTE SONORA</button>
+        <p style="color: #666; margin-top: 15px;">Assicurati che il volume sia attivo</p>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
@@ -61,116 +63,116 @@
     
     <div id="ui-overlay">
         <div class="reticolo" id="reticolo"></div>
-        <p id="instruzioni">Punta un colore del quadro</p>
+        <p id="info">ANALISI COLORE IN CORSO</p>
     </div>
 
 <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
     const reticolo = document.getElementById('reticolo');
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter, lfo;
+    let synth, filter;
     let isActive = false;
+    let lastNote = "";
 
-    // 1. Configurazione della catena sonora
+    // Inizializzazione Audio
     function setupAudio() {
-        // Un filtro che rende il suono più "morbido"
-        filter = new Tone.Filter(1000, "lowpass").toDestination();
+        // Riverbero per rendere il suono "artistico" e spaziale
+        const reverb = new Tone.Reverb({ decay: 4, wet: 0.5 }).toDestination();
+        filter = new Tone.Filter(800, "lowpass").connect(reverb);
         
-        // Un oscillatore a bassa frequenza per dare movimento al suono
-        lfo = new Tone.LFO("4n", 400, 1600).connect(filter.frequency).start();
-        
-        // Sintetizzatore FM (Frequenza Modulata) per un timbro ricco
-        synth = new Tone.MonoSynth({
+        synth = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: "sine" },
-            envelope: { attack: 0.3, release: 1 }
+            envelope: { attack: 0.5, release: 2 }
         }).connect(filter);
         
-        synth.volume.value = -12; // Abbassa leggermente il volume
+        synth.volume.value = -10;
     }
 
-    // 2. Accesso alla fotocamera con gestione errori
+    // Inizializzazione Camera
     async function initCamera() {
-        const constraints = {
-            video: { facingMode: "environment" }, // Forza camera posteriore
-            audio: false
-        };
-
         try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment" },
+                audio: false
+            });
             video.srcObject = stream;
-            // Forza il play per Safari/iOS
-            await video.play();
-            console.log("Camera attiva");
+            // Attendiamo che il video sia effettivamente pronto per il play
+            return new Promise((resolve) => {
+                video.onloadedmetadata = () => {
+                    video.play();
+                    resolve();
+                };
+            });
         } catch (err) {
-            console.error("Errore camera:", err);
-            alert("Impossibile accedere alla camera. Usa HTTPS e autorizza il sito.");
+            alert("Errore fotocamera: Usa HTTPS e accetta i permessi.");
+            throw err;
         }
     }
 
-    // 3. Gestione del click iniziale
+    // Click per avviare tutto
     startBtn.addEventListener('click', async () => {
-        // Tone.start() sblocca l'audio sui dispositivi mobili
+        // IMPORTANTE: Sblocco Audio su Mobile
         await Tone.start();
-        setupAudio();
-        await initCamera();
+        if (Tone.context.state !== 'running') {
+            await Tone.context.resume();
+        }
         
-        startScreen.style.display = 'none';
-        isActive = true;
-        loop();
+        setupAudio();
+        
+        try {
+            await initCamera();
+            startScreen.style.display = 'none';
+            isActive = true;
+            loop();
+        } catch(e) { console.error(e); }
     });
 
-    // 4. Ciclo di analisi dei pixel
     function loop() {
         if (!isActive) return;
 
-        // Se il video è pronto, lo analizziamo
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            // Sincronizza dimensioni canvas
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // Prendiamo il pixel esattamente al centro
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const pixel = ctx.getImageData(centerX, centerY, 1, 1).data;
+            // Estrazione colore centrale
+            const x = canvas.width / 2;
+            const y = canvas.height / 2;
+            const p = ctx.getImageData(x, y, 1, 1).data;
             
-            updateSound(pixel[0], pixel[1], pixel[2]);
+            processColor(p[0], p[1], p[2]);
         }
-
         requestAnimationFrame(loop);
     }
 
-    // 5. Trasformazione Colore -> Suono
-    function updateSound(r, g, b) {
+    function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
         
-        // Mappatura Tonalità (0-360) su Scala Pentatonica (armoniosa)
+        // Scala pentatonica per evitare dissonanze
         const scale = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4"];
-        const index = Math.floor((hsl.h / 360) * scale.length);
-        const note = scale[index];
+        const noteIndex = Math.floor((hsl.h / 360) * scale.length);
+        const currentNote = scale[noteIndex];
 
-        // Se la nota cambia, innesca il sintetizzatore
-        if (synth.frequency.value !== note) {
-            synth.triggerAttack(note, "+0.05");
+        // Suona solo se la nota è cambiata (per evitare rumore continuo)
+        if (currentNote !== lastNote) {
+            synth.triggerAttackRelease(currentNote, "2n");
+            lastNote = currentNote;
         }
 
-        // La Saturazione (intensità del colore) controlla la velocità del battito (LFO)
-        lfo.frequency.rampTo(hsl.s / 10 + 0.5, 0.1);
+        // Adatta il filtro alla luminosità
+        const cutoff = (hsl.l * 20) + 300;
+        filter.frequency.rampTo(cutoff, 0.2);
 
-        // La Luminosità controlla l'apertura del filtro (suono chiaro vs scuro)
-        const cutoff = (hsl.l * 30) + 200;
-        filter.frequency.rampTo(cutoff, 0.1);
-
-        // Feedback visivo sul reticolo
+        // Aggiorna interfaccia
         reticolo.style.borderColor = `rgb(${r},${g},${b})`;
-        reticolo.style.transform = `scale(${1 + (hsl.s / 200)})`;
+        reticolo.style.transform = `scale(${1 + (hsl.s / 150)})`;
     }
 
-    // Funzione di utilità per convertire i colori
     function rgbToHsl(r, g, b) {
         r /= 255; g /= 255; b /= 255;
         const max = Math.max(r, g, b), min = Math.min(r, g, b);
