@@ -3,192 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia - Motion Awareness</title>
+    <title>Sinestesia - Debug Version</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; filter: grayscale(0.5); transition: filter 0.5s; }
-        canvas { display: none; }
-        #ui-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            display: flex; justify-content: center; align-items: center;
-            z-index: 10; pointer-events: none;
-        }
-        .reticolo {
-            width: 70px; height: 70px; border: 2px solid rgba(255,255,255,0.5);
-            border-radius: 50%; transition: all 0.5s;
-        }
-        #status-msg {
-            position: fixed; bottom: 40px; color: white; width: 100%; text-align: center;
-            z-index: 20; letter-spacing: 2px; font-size: 0.8rem; opacity: 0.6;
-        }
-        #start-screen {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; display: flex; flex-direction: column; 
-            justify-content: center; align-items: center; z-index: 100;
-        }
-        #start-btn {
-            padding: 20px 60px; font-size: 1.1rem; font-weight: 300; letter-spacing: 3px;
-            background: none; color: white; border: 1px solid white; border-radius: 4px;
-            cursor: pointer;
-        }
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; color: white; }
+        video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+        #ui-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; pointer-events: none; }
+        .reticolo { width: 60px; height: 60px; border: 2px solid white; border-radius: 50%; }
+        #debug-log { position: fixed; top: 10px; left: 10px; font-size: 10px; background: rgba(0,0,0,0.7); padding: 10px; z-index: 100; pointer-events: none; max-width: 80%; }
+        #start-screen { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; }
+        button { padding: 20px; background: white; border: none; font-weight: bold; cursor: pointer; }
     </style>
 </head>
 <body>
 
+    <div id="debug-log">In attesa di avvio...</div>
+
     <div id="start-screen">
-        <button id="start-btn">ATTIVA SINESTESIA</button>
-        <p style="color: gray; margin-top: 20px; font-size: 0.8rem;">Richiede accesso ai sensori di movimento</p>
+        <button id="start-btn">AVVIA E AUTORIZZA</button>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
-    <div id="status-msg">FERMO PER CONTEMPLARE</div>
+    <canvas id="canvas" style="display:none;"></canvas>
     
     <div id="ui-overlay">
         <div class="reticolo" id="reticolo"></div>
     </div>
 
 <script>
+    const log = (msg) => { document.getElementById('debug-log').innerText += "\n" + msg; };
     const video = document.getElementById('video');
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { alpha: false });
     const startBtn = document.getElementById('start-btn');
-    const statusMsg = document.getElementById('status-msg');
-
-    let synth, filter, reverb, masterGain;
+    
+    let synth, masterGain;
     let isActive = false;
-    let isMoving = false;
-    let lastNote = "";
-    let lastUpdate = 0;
-    let smoothedR = 0, smoothedG = 0, smoothedB = 0;
 
-    function setupAudio() {
-        masterGain = new Tone.Gain(0).toDestination(); // Inizia a volume 0
-        const limiter = new Tone.Limiter(-3).connect(masterGain);
-        reverb = new Tone.Reverb({ decay: 15, wet: 0.5 }).connect(limiter);
-        const chorus = new Tone.Chorus(2, 3.5, 0.5).connect(reverb).start();
-        filter = new Tone.Filter(800, "lowpass").connect(chorus);
-        
-        synth = new Tone.PolySynth(Tone.Synth, {
-            maxPolyphony: 2,
-            oscillator: { type: "sine" },
-            envelope: { attack: 1.5, decay: 2, sustain: 0.1, release: 8 }
-        }).connect(filter);
-        synth.volume.value = -12;
-    }
+    async function start() {
+        log("Inizializzazione audio...");
+        try {
+            await Tone.start();
+            masterGain = new Tone.Gain(1).toDestination();
+            synth = new Tone.PolySynth(Tone.Synth).connect(masterGain);
+            log("Audio OK.");
+        } catch(e) { log("Errore Audio: " + e); }
 
-    // Gestione del movimento (Accelerometro)
-    function setupMotion() {
-        if (typeof DeviceMotionEvent.requestPermission === 'function') {
-            DeviceMotionEvent.requestPermission().catch(console.error);
+        log("Richiesta fotocamera...");
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
+            video.srcObject = stream;
+            log("Fotocamera OK.");
+        } catch(e) { log("Errore Camera: " + e + ". Usa HTTPS!"); }
+
+        log("Richiesta Movimento...");
+        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+            try {
+                const permission = await DeviceMotionEvent.requestPermission();
+                log("Permesso sensori: " + permission);
+                if (permission === 'granted') window.addEventListener('devicemotion', handleMotion);
+            } catch(e) { log("Errore Sensori: " + e); }
+        } else {
+            window.addEventListener('devicemotion', handleMotion);
+            log("Sensori standard attivati.");
         }
 
-        window.addEventListener('devicemotion', (event) => {
-            const acc = event.accelerationIncludingGravity;
-            // Calcoliamo la forza totale del movimento
-            const movement = Math.sqrt(acc.x**2 + acc.y**2 + acc.z**2);
-            
-            // Soglia di movimento (regola il valore 12 se è troppo sensibile)
-            if (movement > 13) { 
-                if (!isMoving) startWalking();
-            } else if (movement < 10.5) {
-                if (isMoving) stopWalking();
-            }
-        });
-    }
-
-    function startWalking() {
-        isMoving = true;
-        masterGain.gain.rampTo(0, 0.8); // Sfuma il volume a zero in meno di un secondo
-        statusMsg.innerText = "IN CAMMINO... (MUTE)";
-        video.style.filter = "grayscale(1)";
-        document.getElementById('reticolo').style.opacity = "0.2";
-    }
-
-    function stopWalking() {
-        isMoving = false;
-        masterGain.gain.rampTo(1, 1.5); // Torna il volume gradualmente
-        statusMsg.innerText = "FERMO PER CONTEMPLARE";
-        video.style.filter = "grayscale(0)";
-        document.getElementById('reticolo').style.opacity = "1";
-    }
-
-    async function initCamera() {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" }, audio: false
-        });
-        video.srcObject = stream;
-    }
-
-    startBtn.addEventListener('click', async () => {
-        await Tone.start();
-        setupAudio();
-        setupMotion();
-        await initCamera();
         document.getElementById('start-screen').style.display = 'none';
         isActive = true;
-        requestAnimationFrame(loop);
-    });
-
-    function loop(time) {
-        if (!isActive || isMoving) {
-            requestAnimationFrame(loop);
-            return; // Se ti muovi, blocca il riconoscimento colori
-        }
-
-        if (time - lastUpdate > 200) {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.width = 100; canvas.height = 100;
-                ctx.drawImage(video, 0, 0, 100, 100);
-                const imageData = ctx.getImageData(40, 40, 20, 20).data;
-                let r = 0, g = 0, b = 0;
-                for (let i = 0; i < imageData.length; i += 4) {
-                    r += imageData[i]; g += imageData[i+1]; b += imageData[i+2];
-                }
-                const count = imageData.length / 4;
-                smoothedR += (r/count - smoothedR) * 0.4;
-                smoothedG += (g/count - smoothedG) * 0.4;
-                smoothedB += (b/count - smoothedB) * 0.4;
-                processColor(Math.floor(smoothedR), Math.floor(smoothedG), Math.floor(smoothedB)); 
-                lastUpdate = time;
-            }
-        }
-        requestAnimationFrame(loop);
+        loop();
     }
 
-    function processColor(r, g, b) {
-        const hsl = rgbToHsl(r, g, b);
-        const scale = ["C3", "G3", "C4", "D4", "E4", "G4", "A4", "C5", "E5", "G5"];
-        const index = Math.floor((hsl.h / 360) * scale.length);
-        const note = scale[index];
-        const velocity = (hsl.l / 100) * (hsl.s > 5 ? 0.8 : 0.4);
-
-        if (note !== lastNote && velocity > 0.08) {
-            synth.releaseAll();
-            synth.triggerAttackRelease(note, "1n", undefined, velocity);
-            lastNote = note;
-        }
-        filter.frequency.rampTo((hsl.l * 10) + 200, 1.5);
-        document.getElementById('reticolo').style.borderColor = `rgb(${r},${g},${b})`;
+    function handleMotion(event) {
+        const a = event.accelerationIncludingGravity;
+        const force = Math.sqrt(a.x**2 + a.y**2 + a.z**2);
+        if (force > 13) masterGain.gain.rampTo(0, 0.5);
+        else masterGain.gain.rampTo(1, 1);
     }
 
-    function rgbToHsl(r, g, b) {
-        r /= 255; g /= 255; b /= 255;
-        const max = Math.max(r, g, b), min = Math.min(r, g, b);
-        let h, s, l = (max + min) / 2;
-        if (max === min) h = s = 0;
-        else {
-            const d = max - min;
-            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-            switch (max) {
-                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-                case g: h = (b - r) / d + 2; break;
-                case b: h = (r - g) / d + 4; break;
-            }
-            h /= 6;
+    function loop() {
+        if (!isActive) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            // Analisi basilare per testare se il suono esce
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 10; canvas.height = 10;
+            ctx.drawImage(video, 0, 0, 10, 10);
+            const p = ctx.getImageData(5, 5, 1, 1).data;
+            
+            // Suona solo se vede un cambiamento di colore significativo
+            const hue = p[0]; // Semplice trigger basato sul rosso per il test
+            synth.triggerAttackRelease(hue + 200, "8n");
         }
-        return { h: h * 360, s: s * 100, l: l * 100 };
+        setTimeout(loop, 500);
     }
+
+    startBtn.addEventListener('click', start);
 </script>
 </body>
 </html>
