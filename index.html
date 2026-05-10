@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia Ambient Museale</title>
+    <title>Sinestesia Ambient - Pro Edition</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
-        /* INTERFACCIA MANTENUTA */
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
         canvas { display: none; }
@@ -21,22 +20,20 @@
         }
         #start-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(circle, #222 0%, #000 100%);
-            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100;
+            background: #000; display: flex; flex-direction: column; 
+            justify-content: center; align-items: center; z-index: 100;
         }
         #start-btn {
             padding: 20px 60px; font-size: 1.1rem; font-weight: 300; letter-spacing: 3px;
             background: none; color: white; border: 1px solid white; border-radius: 2px;
-            cursor: pointer; transition: all 0.5s;
+            cursor: pointer;
         }
-        #start-btn:hover { background: white; color: black; }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
-        <button id="start-btn">ASCOLTA L'OPERA</button>
-        <p style="color: #666; margin-top: 30px; font-size: 0.8rem; letter-spacing: 1px;">SINESTESIA AMBIENT EXPERIENCE</p>
+        <button id="start-btn">ENTRA NELL'OPERA</button>
     </div>
 
     <video id="video" autoplay playsinline muted></video>
@@ -54,58 +51,56 @@
     const startBtn = document.getElementById('start-btn');
     const startScreen = document.getElementById('start-screen');
 
-    let synth, filter, reverb, phaser, chorus, limiter;
+    let synth, filter, reverb, limiter;
     let isActive = false;
+    let lastHue = 0;
     let lastNote = "";
     let lastUpdate = 0;
-    const updateInterval = 150; // Leggermente più lento per massima stabilità CPU
+    const updateInterval = 200; // Analisi più calma per evitare micro-oscillazioni
 
     function setupAudio() {
-        // SOLUZIONE SCOPPIETTII: Limiter ferreo a 0dB per evitare clipping
-        limiter = new Tone.Limiter(0).toDestination();
+        // 1. Limiter STRETTO: impedisce fisicamente il clipping
+        limiter = new Tone.Limiter(-1).toDestination();
 
-        // Gain di compensazione per alzare il volume senza "rompere" l'onda
-        const finalGain = new Tone.Gain(3.5).connect(limiter);
+        // 2. Gain bilanciato
+        const finalGain = new Tone.Gain(2.5).connect(limiter);
 
-        // SUONO NEW AGE: Riverbero lunghissimo
-        reverb = new Tone.Reverb({ decay: 8, wet: 0.5 }).connect(finalGain);
+        // 3. Riverbero profondo
+        reverb = new Tone.Reverb({ decay: 10, wet: 0.5 }).connect(finalGain);
 
-        // Effetti di spazialità
-        chorus = new Tone.Chorus(1.5, 3.5, 0.7).connect(reverb).start();
-        phaser = new Tone.Phaser({ frequency: 0.1, octaves: 2, baseFrequency: 400 }).connect(chorus);
+        // 4. Chorus per ammorbidire le transizioni
+        const chorus = new Tone.Chorus(2, 4, 0.5).connect(reverb).start();
 
-        // Filtro morbido per togliere asprezze
-        filter = new Tone.Filter(1200, "lowpass").connect(phaser);
+        filter = new Tone.Filter(1000, "lowpass").connect(chorus);
         
-        // SINTETIZZATORE PURO
-        synth = new Tone.PolySynth(Tone.Synth, {
+        // 5. Monosynth invece di Polysynth: 
+        // Questo garantisce che non si sommino mai più note contemporaneamente!
+        synth = new Tone.MonoSynth({
             oscillator: { type: "sine" }, 
             envelope: { 
-                attack: 1.2, // Attacco ancora più dolce per eliminare i "clic" iniziali
-                decay: 1,
-                sustain: 0.8,
-                release: 5 // Coda lunghissima per dissolvenze perfette
+                attack: 1.5, 
+                decay: 2,
+                sustain: 0.6,
+                release: 4 
             }
         }).connect(filter);
         
-        // Volume interno basso (per non distorcere prima degli effetti)
-        synth.volume.value = -6; 
+        synth.volume.value = -10; 
     }
 
     async function initCamera() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment", width: { ideal: 640 } }, 
+                video: { facingMode: "environment" }, 
                 audio: false
             });
             video.srcObject = stream;
-            return new Promise(resolve => video.onloadedmetadata = () => { video.play(); resolve(); });
-        } catch (err) { alert("Attenzione: serve HTTPS per la camera."); }
+            video.play();
+        } catch (err) { alert("Necessario HTTPS"); }
     }
 
     startBtn.addEventListener('click', async () => {
         await Tone.start();
-        if (Tone.context.state !== 'running') await Tone.context.resume();
         setupAudio();
         await initCamera();
         startScreen.style.display = 'none';
@@ -117,7 +112,6 @@
         if (!isActive) return;
         if (time - lastUpdate > updateInterval) {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                // Analisi su area piccola per non rubare CPU all'audio
                 canvas.width = 64; canvas.height = 64;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                 const p = ctx.getImageData(32, 32, 1, 1).data;
@@ -130,23 +124,27 @@
 
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
-        const scale = ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5"];
+        
+        // --- LOGICA DI TOLLERANZA ---
+        // Se la tonalità (Hue) è cambiata meno del 15% (30 gradi), ignora il cambiamento.
+        // Questo evita gli scoppiettii su colori simili.
+        const hueDiff = Math.abs(hsl.h - lastHue);
+        if (hueDiff < 30 && lastNote !== "") return; 
+
+        const scale = ["C4", "D4", "E4", "G4", "A4", "C5"];
         const index = Math.floor((hsl.h / 360) * scale.length);
         const note = scale[index];
 
         if (note !== lastNote) {
-            // SOLUZIONE DISTURBI: Dissolvenza incrociata tra note
-            synth.releaseAll(); 
-            // triggerAttack con un leggero ritardo temporale (+0.1) per evitare sovrapposizioni elettriche brusche
-            synth.triggerAttackRelease(note, "1n", "+0.1", 0.5);
+            // Suono monofonico: triggerAttackRelease gestisce la transizione senza sovrapposizioni brusche
+            synth.triggerAttackRelease(note, "1n");
             lastNote = note;
+            lastHue = hsl.h;
         }
 
-        // Transizione del filtro molto lenta (0.8s) per evitare "bump" audio
-        const freq = (hsl.l * 15) + 350;
-        filter.frequency.exponentialRampTo(freq, 0.8);
-
-        reticolo.style.borderColor = `rgba(${r},${g},${b}, 0.8)`;
+        const freq = (hsl.l * 10) + 400;
+        filter.frequency.rampTo(freq, 0.5);
+        reticolo.style.borderColor = `rgb(${r},${g},${b})`;
     }
 
     function rgbToHsl(r, g, b) {
