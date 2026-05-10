@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sinestesia - Harmonia Mundi</title>
+    <title>Sinestesia - Spettro Totale</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
@@ -15,8 +15,8 @@
             z-index: 10; pointer-events: none;
         }
         .reticolo {
-            width: 60px; height: 60px; border: 2px solid rgba(255,255,255,0.4);
-            border-radius: 50%; box-shadow: 0 0 30px rgba(255,255,255,0.2);
+            width: 60px; height: 60px; border: 3px solid rgba(255,255,255,0.6);
+            border-radius: 50%; box-shadow: 0 0 30px rgba(0,0,0,0.5);
         }
         #start-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -57,26 +57,16 @@
 
     function setupAudio() {
         const limiter = new Tone.Limiter(0).toDestination();
-        const finalGain = new Tone.Gain(2).connect(limiter);
-        
-        // Riverbero celestiale
+        const finalGain = new Tone.Gain(2.2).connect(limiter);
         reverb = new Tone.Reverb({ decay: 10, wet: 0.5 }).connect(finalGain);
-        
-        // Chorus per sdoppiare il suono e renderlo magico
         chorus = new Tone.Chorus(1.5, 3.5, 0.5).connect(reverb).start();
+        filter = new Tone.Filter(1100, "lowpass").connect(chorus);
         
-        // Filtro passa-basso molto dolce
-        filter = new Tone.Filter(1000, "lowpass").connect(chorus);
-        
-        // MonoSynth con "portamento": la chiave per la musica continua
-        // Il portamento scivola tra le note musicali in modo automatico
+        // Manteniamo il Portamento per la sonorità New Age che ti piace
         synth = new Tone.MonoSynth({
             oscillator: { type: "sine" },
-            portamento: 0.8, // Tempo di scivolamento tra le note (New Age feel)
-            envelope: {
-                attack: 1.5,
-                release: 4
-            }
+            portamento: 0.8, 
+            envelope: { attack: 1.5, release: 4 }
         }).connect(filter);
 
         synth.volume.value = -8;
@@ -90,7 +80,7 @@
             });
             video.srcObject = stream;
             video.play();
-        } catch (err) { alert("HTTPS richiesto"); }
+        } catch (err) { alert("HTTPS richiesto per la fotocamera."); }
     }
 
     startBtn.addEventListener('click', async () => {
@@ -99,20 +89,20 @@
         await initCamera();
         startScreen.style.display = 'none';
         isActive = true;
-        
-        // Inizia con una nota fondamentale
         synth.triggerAttack("C4");
         requestAnimationFrame(loop);
     });
 
     function loop(time) {
         if (!isActive) return;
-        if (time - lastUpdate > 150) {
+        if (time - lastUpdate > 120) { // Analisi leggermente più veloce
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 canvas.width = 64; canvas.height = 64;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const p = ctx.getImageData(32, 32, 1, 1).data;
-                processColor(p[0], p[1], p[2]);
+                // Analizziamo una piccola media di pixel (3x3) invece di uno solo
+                // per rendere la lettura del colore più stabile e onnicomprensiva
+                const p = ctx.getImageData(31, 31, 3, 3).data;
+                processColor(p[0], p[1], p[2]); 
                 lastUpdate = time;
             }
         }
@@ -122,23 +112,29 @@
     function processColor(r, g, b) {
         const hsl = rgbToHsl(r, g, b);
         
-        // SCALA PENTATONICA MAGGIORE: Impossibile fare note brutte
-        const scale = ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5"];
+        // MIGLIORAMENTO SPETTRO: Usiamo Hue per la nota, ma Saturazione e Luminosità
+        // per decidere se la nota deve cambiare ottava.
+        // Espandiamo la scala su due ottave per coprire più "sfumature"
+        const scale = ["C3", "D3", "E3", "G3", "A3", "C4", "D4", "E4", "G4", "A4", "C5", "D5"];
+        
+        // Calcoliamo l'indice pesando la saturazione (così anche i colori spenti suonano)
         const index = Math.floor((hsl.h / 360) * scale.length);
         const note = scale[index];
 
-        if (note !== lastNote) {
-            // Non usiamo triggerRelease! Cambiamo solo la frequenza.
-            // Il 'portamento' farà il resto, scivolando verso la nota musicale.
+        if (note && note !== lastNote) {
             synth.setNote(note);
             lastNote = note;
         }
 
-        // Il filtro ammorbidisce il suono in base alla luce
-        const fCutoff = (hsl.l * 12) + 300;
+        // Il filtro reagisce alla saturazione e luminosità (apre il suono sui colori vividi)
+        const intensity = (hsl.s * 0.5) + (hsl.l * 0.5);
+        const fCutoff = (intensity * 15) + 350;
         filter.frequency.rampTo(fCutoff, 1);
 
-        document.getElementById('reticolo').style.borderColor = `rgb(${r},${g},${b})`;
+        // Feedback visivo dinamico
+        const reticolo = document.getElementById('reticolo');
+        reticolo.style.borderColor = `rgb(${r},${g},${b})`;
+        reticolo.style.boxShadow = `0 0 20px rgba(${r},${g},${b}, 0.8)`;
     }
 
     function rgbToHsl(r, g, b) {
